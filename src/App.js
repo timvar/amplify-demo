@@ -1,111 +1,111 @@
 import React, { useEffect, useReducer } from 'react';
 import API, { graphqlOperation } from '@aws-amplify/api';
-import PubSub from '@aws-amplify/pubsub';
-import { createTodo } from './graphql/mutations';
+import { createTodo, deleteTodo } from './graphql/mutations';
 import { listTodos } from './graphql/queries';
 import { onCreateTodo } from './graphql/subscriptions';
-import Amplify, { Auth } from 'aws-amplify';
-import { withAuthenticator } from 'aws-amplify-react';
+import { makeStyles } from '@material-ui/core';
 
 import awsconfig from './aws-exports';
+import Todo from './components/Todo';
 
 API.configure(awsconfig);
-Amplify.configure(awsconfig);
 
-Amplify.configure({
-    Auth: {
-    // REQUIRED - Amazon Cognito Region
-    region: 'eu-west-1',
-
-    // OPTIONAL - Amazon Cognito User Pool ID
-    userPoolId: 'eu-west-1_BLiQe2HTM',
-
-    // OPTIONAL - Amazon Cognito Web Client ID (26-char alphanumeric string)
-    userPoolWebClientId: '50vte5k4orevnh6bc95acpd825',
-    
-    // OPTIONAL - Manually set the authentication flow type. Default is 'USER_SRP_AUTH'
-  }
-});
-
-const currentConfig = Auth.configure();
-
-
-
-async function SignIn(username, password) {
-  try {
-      const user = await Auth.signIn(username, password);
-      console.log('user', user);
-      
-  } catch (err) {
-      if (err.code === 'UserNotConfirmedException') {
-          // The error happens if the user didn't finish the confirmation step when signing up
-          // In this case you need to resend the code and confirm the user
-          // About how to resend the code and confirm the user, please check the signUp part
-      } else if (err.code === 'PasswordResetRequiredException') {
-          // The error happens when the password is reset in the Cognito console
-          // In this case you need to call forgotPassword to reset the password
-          // Please check the Forgot Password part.
-      } else if (err.code === 'NotAuthorizedException') {
-          // The error happens when the incorrect password is provided
-      } else if (err.code === 'UserNotFoundException') {
-          // The error happens when the supplied username/email does not exist in the Cognito user pool
-      } else {
-          console.log(err);
-      }
-  }
-}
-
-
-const initialState = { todos: [] };
-const reducer = (state, action) => {
+const initialState = {todos:[]};
+const reducer = (state, action) =>{
   switch(action.type){
-    case 'QUERY':
-      return { ...state, todos: action.todos }
-    case 'SUBSCRIPTION':
-      return { ...state, todos: [...state.todos, action.todo] }
+    case 'SCAN':
+      return {...state, todos:action.todos}
+    case 'DELETE':
+      const newTodos = state.todos.filter( todo => {
+        return todo.id !== action.id
+      })
+      return {...state, todos: newTodos } 
     default:
       return state
   }
 }
+
+const useStyles = makeStyles(theme => ({
+  card: {
+    maxWidth: 345,
+  },
+  media: {
+    height: 0,
+    paddingTop: '56.25%', // 16:9
+  },
+  expand: {
+    transform: 'rotate(0deg)',
+    marginLeft: 'auto',
+    transition: theme.transitions.create('transform', {
+      duration: theme.transitions.duration.shortest,
+    }),
+  },
+  expandOpen: {
+    transform: 'rotate(180deg)',
+  },
+}));
+
+
 
 async function createNewTodo() {
   const todo = { name: 'Use AppSync', description: 'Yo'}
   await API.graphql(graphqlOperation(createTodo, { input: todo}))
 }
 
-function App() {
-  const [state, dispatch] = useReducer(reducer, initialState);
-   useEffect(() => {
-     getData();
-     const subscription = API.graphql(graphqlOperation(onCreateTodo))
-     .subscribe({
-       next: (eventData) => {
-         const todo = eventData.value.data.onCreateTodo;
-         dispatch({type:'SUBSCRIPTION', todo})
-       }
-     })
-     return () => subscription.unsubscribe()
-   }, []);
+async function deleteItem(id) {
+  const todo = { id: id }
+  await API.graphql(graphqlOperation(deleteTodo, { input: todo }));
+  console.log('todo.id', todo.id);
+}
 
-  
-  console.log('currentConfig', currentConfig);
-  
-  SignIn('fejop@getnada.com', 'fejo1234');
+function App() {
+  const classes = useStyles();
+  const [state, dispatch] = useReducer(reducer, initialState)
+
+  useEffect(() => {
+    getData()
+  }, [state])
 
   async function getData() {
-    const todoData = await API.graphql(graphqlOperation(listTodos));
-    dispatch({type:'QUERY', todos: todoData.data.listTodos.items});
-  } 
+    try {
+      const todoData = await API.graphql(graphqlOperation(listTodos))
+      dispatch({type:'SCAN', todos: todoData.data.listTodos.items});
+    }
+    catch (err) {
+      console.log(err)
+    }
+  }
+
+  const handleDelete = (id) => {
+    console.log('id', id);
+    deleteItem(id);
+    dispatch({type:'DELETE', id: id})
+  }
+ 
   return (
     <div className="App">
-      <div>
+      {state.todos.map(todo => 
+        <Todo 
+          key={todo.id} 
+          todo={todo} 
+          classes={classes}
+          handleDelete={handleDelete}
+        />)}
+    </div>
+  );
+}
+
+export default App;
+/*
+<div>
       <button onClick={createNewTodo}>Add Todo</button>
       </div>
       <div>
         {state.todos.map((todo, i) => <p key={todo.id}>{todo.name} : {todo.description}   </p>)}
       </div>
-    </div>
-  );
-}
 
-export default withAuthenticator(App);
+
+      {todos.map(todo => {
+        return <Todo classes={classes} />
+      })}
+*/
